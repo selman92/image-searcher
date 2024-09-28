@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/schollz/progressbar/v3"
 )
 
 // CreateFolder creates the directory to save images
@@ -49,7 +50,6 @@ func downloadImage(url, folder, query string, counter int, extension string) err
 		return fmt.Errorf("failed to save image: %v", err)
 	}
 
-	fmt.Printf("Downloaded %s\n", fileName)
 	return nil
 }
 
@@ -177,9 +177,10 @@ func searchBingImages(ctx context.Context, query string) ([]string, error) {
 	return imageURLs, nil
 }
 
-// SaveImagesConcurrently saves images concurrently from a list of URLs to the specified folder
 func downloadImages(imageURLs []string, folder, query string) {
-	// Create the folder if it doesn't exist
+
+	imageProgressBar := progressbar.NewOptions(len(imageURLs), progressbar.OptionSetDescription("Downloading images to "+folder), progressbar.OptionEnableColorCodes(true))
+
 	err := os.MkdirAll(folder, os.ModePerm)
 	if err != nil {
 		fmt.Printf("Failed to create folder: %v\n", err)
@@ -195,8 +196,10 @@ func downloadImages(imageURLs []string, folder, query string) {
 			// Append .jpg extension to all downloaded images
 			err := downloadImage(url, folder, query, i+1, ".jpg")
 			if err != nil {
-				fmt.Printf("Failed to download image %d: %v\n", i+1, err)
+				log.Printf("Failed to download image %d: %v\n", i+1, err)
 			}
+
+			imageProgressBar.Add(1)
 		}(i, url)
 	}
 
@@ -215,12 +218,21 @@ func main() {
 	query := defineStringFlag("query", "q", "", "Search query for images (required)")
 	targets := defineStringFlag("targets", "t", "all", "Comma-separated search targets: google, bing, yandex, or all (default: all)")
 	out := defineStringFlag("out", "o", "images", "Directory to save images (default: images)")
+	logFile := defineStringFlag("log", "l", "logs.log", "File to save logs (default: logs.log)")
 
 	flag.Parse()
 
+	// Set up logging to a file
+	file, err := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v\n", err)
+	}
+	defer file.Close()
+	log.SetOutput(file)
+
 	// Validate query input
 	if *query == "" {
-		log.Fatal("Please provide a search query using the -query flag.")
+		log.Fatal("Please provide a search query using the -query or -q flag.")
 	}
 
 	// Set up search targets
@@ -230,7 +242,7 @@ func main() {
 	} else {
 		searchTargets = strings.Split(*targets, ",")
 		for i := range searchTargets {
-			searchTargets[i] = strings.TrimSpace(searchTargets[i]) // Trim whitespace
+			searchTargets[i] = strings.TrimSpace(searchTargets[i])
 		}
 	}
 
@@ -262,6 +274,10 @@ func main() {
 			case "google":
 				googleImages, err := searchGoogleImages(taskCtx, *query)
 				if err == nil {
+					if len(googleImages) == 0 {
+						log.Printf("No images found in yandex for query: %v", query)
+						return
+					}
 					downloadImages(googleImages, filepath.Join(*out, "google"), *query)
 				} else {
 					log.Printf("Failed to search on Google: %v\n", err)
@@ -269,6 +285,10 @@ func main() {
 			case "bing":
 				bingImages, err := searchBingImages(taskCtx, *query)
 				if err == nil {
+					if len(bingImages) == 0 {
+						log.Printf("No images found in yandex for query: %v", query)
+						return
+					}
 					downloadImages(bingImages, filepath.Join(*out, "bing"), *query)
 				} else {
 					log.Printf("Failed to search on Bing: %v\n", err)
@@ -276,6 +296,10 @@ func main() {
 			case "yandex":
 				yandexImages, err := searchYandexImages(taskCtx, *query)
 				if err == nil {
+					if len(yandexImages) == 0 {
+						log.Printf("No images found in yandex for query: %v", query)
+						return
+					}
 					downloadImages(yandexImages, filepath.Join(*out, "yandex"), *query)
 				} else {
 					log.Printf("Failed to search on Yandex: %v\n", err)
@@ -288,5 +312,6 @@ func main() {
 
 	// Wait for all search engine tasks to complete
 	wg.Wait()
+	fmt.Println()
 	fmt.Println("Image search and download completed.")
 }
