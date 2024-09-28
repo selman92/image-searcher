@@ -204,10 +204,18 @@ func downloadImages(imageURLs []string, folder, query string) {
 	wg.Wait()
 }
 
+func defineStringFlag(longName string, shortName string, defaultValue string, usage string) *string {
+	val := flag.String(longName, defaultValue, usage)
+	flag.StringVar(val, shortName, defaultValue, usage)
+	return val
+}
+
 func main() {
 	// Parse CLI arguments
-	query := flag.String("query", "", "Search query for images (required)")
-	targets := flag.String("targets", "all", "Comma-separated search targets: google, bing, yandex, or all (default: all)")
+	query := defineStringFlag("query", "q", "", "Search query for images (required)")
+	targets := defineStringFlag("targets", "t", "all", "Comma-separated search targets: google, bing, yandex, or all (default: all)")
+	out := defineStringFlag("out", "o", "images", "Directory to save images (default: images)")
+
 	flag.Parse()
 
 	// Validate query input
@@ -254,21 +262,21 @@ func main() {
 			case "google":
 				googleImages, err := searchGoogleImages(taskCtx, *query)
 				if err == nil {
-					downloadImages(googleImages, "images/google", *query)
+					downloadImages(googleImages, filepath.Join(*out, "google"), *query)
 				} else {
 					log.Printf("Failed to search on Google: %v\n", err)
 				}
 			case "bing":
 				bingImages, err := searchBingImages(taskCtx, *query)
 				if err == nil {
-					downloadImages(bingImages, "images/bing", *query)
+					downloadImages(bingImages, filepath.Join(*out, "bing"), *query)
 				} else {
 					log.Printf("Failed to search on Bing: %v\n", err)
 				}
 			case "yandex":
 				yandexImages, err := searchYandexImages(taskCtx, *query)
 				if err == nil {
-					downloadImages(yandexImages, "images/yandex", *query)
+					downloadImages(yandexImages, filepath.Join(*out, "yandex"), *query)
 				} else {
 					log.Printf("Failed to search on Yandex: %v\n", err)
 				}
