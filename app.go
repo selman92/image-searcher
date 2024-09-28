@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/chromedp"
@@ -144,48 +145,140 @@ func filterGoogleImageURLs(imageURLs []string) []string {
 	return filtered
 }
 
-func main() {
-	// Define a flag for the search query
-	searchPhrase := flag.String("query", "", "Search phrase to lookup images")
-	flag.Parse()
+// SearchBingImages searches for images on Bing using chromedp and returns the image URLs
+func searchBingImages(ctx context.Context, query string) ([]string, error) {
+	var imageURLs []string
+	searchURL := fmt.Sprintf("https://www.bing.com/images/search?q=%s", strings.Replace(query, " ", "+", -1))
 
-	if *searchPhrase == "" {
-		fmt.Println("Please provide a search phrase using -query flag.")
+	// Run tasks to load the Bing image search page and extract image URLs
+	err := chromedp.Run(ctx,
+		// Navigate to Bing image search
+		chromedp.Navigate(searchURL),
+		chromedp.Sleep(2*time.Second), // Wait for the page to load
+
+		// Scroll down to load more images (simulate user interaction)
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			for i := 0; i < 5; i++ { // Scroll multiple times to load more images
+				err := chromedp.Run(ctx, chromedp.Evaluate(`window.scrollBy(0, document.body.scrollHeight);`, nil))
+				if err != nil {
+					return err
+				}
+				time.Sleep(500 * time.Millisecond) // Wait for images to load after each scroll
+			}
+			return nil
+		}),
+
+		chromedp.Evaluate(`Array.from(document.querySelectorAll('a.iusc')).map(a => a.getAttribute('m')).map(json => JSON.parse(json).murl)`, &imageURLs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Bing images: %v", err)
+	}
+
+	return imageURLs, nil
+}
+
+// SaveImagesConcurrently saves images concurrently from a list of URLs to the specified folder
+func downloadImages(imageURLs []string, folder, query string) {
+	// Create the folder if it doesn't exist
+	err := os.MkdirAll(folder, os.ModePerm)
+	if err != nil {
+		fmt.Printf("Failed to create folder: %v\n", err)
 		return
 	}
 
-	// Create a folder to store images
-	imageFolder := "./images"
-	err := createFolder(imageFolder)
-	if err != nil {
-		log.Fatalf("Error creating folder: %v", err)
+	// Set up a wait group to download images concurrently
+	var wg sync.WaitGroup
+	for i, url := range imageURLs {
+		wg.Add(1)
+		go func(i int, url string) {
+			defer wg.Done()
+			// Append .jpg extension to all downloaded images
+			err := downloadImage(url, folder, query, i+1, ".jpg")
+			if err != nil {
+				fmt.Printf("Failed to download image %d: %v\n", i+1, err)
+			}
+		}(i, url)
 	}
 
-	// Initialize the chromedp context
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
+	// Wait for all download tasks to complete
+	wg.Wait()
+}
 
-	// Fetch images from Yandex
-	fmt.Println("Searching Yandex images...")
-	yandexImages, err := searchYandexImages(ctx, *searchPhrase)
-	if err != nil {
-		log.Fatalf("Failed to search Yandex images: %v", err)
-	}
+func main() {
+	// Parse CLI arguments
+	query := flag.String("query", "", "Search query for images (required)")
+	targets := flag.String("targets", "all", "Comma-separated search targets: google, bing, yandex, or all (default: all)")
+	flag.Parse()
 
-	counter := 1
-	for _, imageURL := range yandexImages {
-		downloadImage(imageURL, imageFolder, *searchPhrase, counter, ".jpg")
-		counter = counter + 1
+	// Validate query input
+	if *query == "" {
+		log.Fatal("Please provide a search query using the -query flag.")
 	}
 
-	// Fetch images from Google
-	fmt.Println("Searching Google images...")
-	googleImages, err := searchGoogleImages(ctx, *searchPhrase)
-	if err != nil {
-		log.Fatalf("Failed to search Google images: %v", err)
+	// Set up search targets
+	var searchTargets []string
+	if *targets == "all" {
+		searchTargets = []string{"google", "bing", "yandex"}
+	} else {
+		searchTargets = strings.Split(*targets, ",")
+		for i := range searchTargets {
+			searchTargets[i] = strings.TrimSpace(searchTargets[i]) // Trim whitespace
+		}
 	}
-	for _, imageURL := range googleImages {
-		downloadImage(imageURL, imageFolder, *searchPhrase, counter, ".jpg")
-		counter = counter + 1
+
+	// Set up a wait group to handle concurrency across search engines
+	var wg sync.WaitGroup
+
+	// Iterate over the search targets and run each search concurrently
+	for _, target := range searchTargets {
+		wg.Add(1)
+		go func(target string) {
+			defer wg.Done()
+
+			fmt.Printf("Searching on %s...\n", target)
+
+			// Create a new context and ChromeDP instance for this search
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			// Start a new ChromeDP instance
+			opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", true))
+			allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
+			defer cancelAlloc()
+
+			// Create a new ChromeDP context
+			taskCtx, cancelTask := chromedp.NewContext(allocCtx)
+			defer cancelTask()
+
+			switch target {
+			case "google":
+				googleImages, err := searchGoogleImages(taskCtx, *query)
+				if err == nil {
+					downloadImages(googleImages, "images/google", *query)
+				} else {
+					log.Printf("Failed to search on Google: %v\n", err)
+				}
+			case "bing":
+				bingImages, err := searchBingImages(taskCtx, *query)
+				if err == nil {
+					downloadImages(bingImages, "images/bing", *query)
+				} else {
+					log.Printf("Failed to search on Bing: %v\n", err)
+				}
+			case "yandex":
+				yandexImages, err := searchYandexImages(taskCtx, *query)
+				if err == nil {
+					downloadImages(yandexImages, "images/yandex", *query)
+				} else {
+					log.Printf("Failed to search on Yandex: %v\n", err)
+				}
+			default:
+				log.Printf("Unknown search target: %s\n", target)
+			}
+		}(target)
 	}
+
+	// Wait for all search engine tasks to complete
+	wg.Wait()
+	fmt.Println("Image search and download completed.")
 }
