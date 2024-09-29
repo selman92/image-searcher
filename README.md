@@ -25,7 +25,8 @@ A command-line interface tool for searching and downloading images from multiple
     go get github.com/schollz/progressbar/v3
 
 ## Usage
-    ```bash
+
+     ```bash
     go run main.go [flags]
 
 ## Flags
