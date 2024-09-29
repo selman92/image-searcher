@@ -18,9 +18,6 @@ vendor/
 go.work
 go.work.sum
 
-# Go module files
-go.sum
-
 # Logs and debugging files
 *.log
 *.prof
