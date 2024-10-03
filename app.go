@@ -62,12 +62,26 @@ func searchYandexImages(ctx context.Context, query string) ([]string, error) {
 	err := chromedp.Run(ctx,
 		// Navigate to Yandex image search
 		chromedp.Navigate(searchURL),
-		chromedp.Sleep(2*time.Second), // Wait for the page to load
+		chromedp.Sleep(2*time.Second),
+	)
 
-		// Extract href attributes from <a> tags with class "Link ContentImage-Cover"
+	logError(err)
+
+	for i := 0; i < 5; i++ {
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`window.scrollTo(0, document.body.scrollHeight);`, nil),
+			chromedp.Sleep(500*time.Millisecond),
+		)
+
+		logError(err)
+	}
+
+	err = chromedp.Run(ctx,
 		chromedp.Evaluate(`Array.from(document.querySelectorAll('a.Link.ContentImage-Cover')).map(a => a.href)`, &links),
 	)
+
 	if err != nil {
+		logError(err)
 		return nil, fmt.Errorf("failed to fetch Yandex image links: %v", err)
 	}
 
@@ -75,6 +89,12 @@ func searchYandexImages(ctx context.Context, query string) ([]string, error) {
 	imageURLs := parseYandexImageURLs(links)
 
 	return imageURLs, nil
+}
+
+func logError(err error) {
+	if err != nil {
+		log.Print(err)
+	}
 }
 
 // Parse img_url parameter from the Yandex href to extract the actual image URLs
