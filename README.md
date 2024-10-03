@@ -26,7 +26,7 @@ A command-line interface tool for searching and downloading images from multiple
 
 ## Usage
    ```bash
-    go run main.go [flags]
+    go run app.go [flags]
    ```
 
 ## Flags
@@ -40,14 +40,14 @@ A command-line interface tool for searching and downloading images from multiple
 
 1. Basic search with default settings:
     ```bash
-    go run main.go -query "cats"
+    go run app.go -query "cats"
 
 2. Search images using specific search engines:
     ```bash
-    go run main.go -query "cats" -targets "google,bing"
+    go run app.go -query "cats" -targets "google,bing"
 
 3. With all arguments
     ```bash
-    go run main.go -q "cats" -t "google,bing,yandex" -log "my_log.txt" -o "img/"
+    go run app.go -q "cats" -t "google,bing,yandex" -log "my_log.txt" -o "img/"
 
 
